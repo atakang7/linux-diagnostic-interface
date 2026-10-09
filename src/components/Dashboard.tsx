@@ -1,142 +1,120 @@
-import React from 'react';
-import { FileText, Network, Files, Menu, X } from 'lucide-react';
-import { useNavigate, Routes, Route } from 'react-router-dom';
-import { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Activity, FileText, FolderTree, Menu, Network, Terminal, X } from 'lucide-react';
+import { NavLink, Route, Routes } from 'react-router-dom';
+import { api } from '../services/api';
 import FileExplorer from './FileExplorer';
-import LogViewer from './LogViewer.jsx';
-import NetworkMonitor from './NetworkMonitor.jsx';
+import LogViewer from './LogViewer';
+import NetworkMonitor from './NetworkMonitor';
 import WebSocketTester from './WebSocketTester';
-import ApiPlayground from './ApiPlayground.jsx';
+import ApiPlayground from './ApiPlayground';
 
-const Dashboard = () => {
-  const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+const sections = [
+  { path: '/', label: 'File explorer', icon: FolderTree },
+  { path: '/logs', label: 'Logs', icon: FileText },
+  { path: '/network', label: 'Network', icon: Network },
+  { path: '/api', label: 'API explorer', icon: Terminal },
+  { path: '/ws-test', label: 'WebSocket', icon: Activity }
+];
+
+export default function Dashboard() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    const check = async () => {
+      const state = await api.getReady();
+      if (live) setReady(state);
+    };
+    check();
+    const interval = setInterval(check, 15000);
+    return () => {
+      live = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-gray-50 flex">
-      {/* Left Sidebar */}
-      <div className={`
-        fixed lg:relative
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        lg:translate-x-0
-        w-64 h-full bg-white border-r border-gray-200 
-        transition-transform duration-200 ease-in-out
-        z-30
-      `}>
-        {/* Header */}
-        <div className="h-16 border-b border-gray-200 flex items-center justify-between px-4">
-          <h1 className="text-lg font-medium text-gray-800">Linux Diagnostic Agent</h1>
-          <button 
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-1 hover:bg-gray-100 rounded-lg"
-          >
+    <div className="min-h-screen bg-slate-50 text-slate-900 md:flex">
+      {mobileOpen && (
+        <button
+          className="fixed inset-0 z-30 bg-slate-900/40 md:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-label="Close navigation"
+        />
+      )}
+
+      <aside className={
+        'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white transition-transform md:sticky md:top-0 md:h-screen md:translate-x-0 ' +
+        (mobileOpen ? 'translate-x-0' : '-translate-x-full')
+      }>
+        <div className="flex h-20 items-center justify-between border-b border-slate-100 px-6">
+          <div>
+            <div className="text-base font-semibold tracking-tight">Linux Diagnostics</div>
+            <div className="text-xs text-slate-500">Operations console</div>
+          </div>
+          <button aria-label="Close menu" onClick={() => setMobileOpen(false)} className="md:hidden">
             <X size={20} />
           </button>
         </div>
 
-        {/* Navigation */}
-        <div className="flex-1 p-4 space-y-2">
-          <button
-            onClick={() => navigate('/files')}
-            className="w-full flex items-center space-x-3 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <Files size={20} />
-            <span>File Explorer</span>
-          </button>
-
-          <button
-            onClick={() => navigate('/logs')}
-            className="w-full flex items-center space-x-3 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <FileText size={20} />
-            <span>Logs</span>
-          </button>
-
-          <button
-            onClick={() => navigate('/network')}
-            className="w-full flex items-center space-x-3 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <Network size={20} />
-            <span>Network</span>
-          </button>
+        <nav aria-label="Main navigation" className="flex-1 space-y-1 px-3 py-5">
+          {sections.map((section) => {
+            const Icon = section.icon;
+            return (
+              <NavLink
+                key={section.path}
+                to={section.path}
+                end={section.path === '/'}
+                onClick={() => setMobileOpen(false)}
+                className={({ isActive }) =>
+                  'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ' +
+                  (isActive
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+                }
+              >
+                <Icon size={18} aria-hidden />
+                {section.label}
+              </NavLink>
+            );
+          })}
+        </nav>
+        <div className="border-t border-slate-100 px-6 py-5">
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <span className={'h-2 w-2 rounded-full ' + (ready ? 'bg-emerald-500' : 'bg-amber-500')} />
+            {ready ? 'Backend connected' : 'Backend unavailable'}
+          </div>
+          <p className="mt-2 text-xs text-slate-400">Local diagnostic environment</p>
         </div>
+      </aside>
 
-        {/* API Playground */}
-        <div className="p-4 border-t border-gray-200">
-          <ApiPlayground />
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Top Bar */}
-        <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-20">
-          <div className="flex items-center space-x-4">
-            <button 
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-1 hover:bg-gray-100 rounded-lg"
-            >
-              <Menu size={20} />
+      <main className="min-w-0 flex-1">
+        <header className="flex h-20 items-center justify-between border-b border-slate-200 bg-white px-5 md:px-8">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setMobileOpen(true)} className="md:hidden" aria-label="Open navigation">
+              <Menu size={22} />
             </button>
-            <h2 className="text-lg font-medium text-gray-800">Dashboard</h2>
+            <div>
+              <h1 className="text-lg font-semibold">Diagnostic console</h1>
+              <p className="text-xs text-slate-500">Explore collected Linux telemetry</p>
+            </div>
           </div>
-          <div className="flex items-center space-x-4">
-            <button 
-              onClick={() => setRightPanelOpen(!rightPanelOpen)}
-              className="p-1 hover:bg-gray-100 rounded-lg"
-            >
-              {rightPanelOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
-          </div>
+          <span className="hidden rounded-md border border-slate-200 px-3 py-1 text-xs text-slate-500 sm:inline-block">
+            {ready ? 'API ready' : 'Offline'}
+          </span>
+        </header>
+
+        <div className="mx-auto max-w-7xl p-4 md:p-8">
+          <Routes>
+            <Route path="/" element={<FileExplorer />} />
+            <Route path="/logs" element={<LogViewer />} />
+            <Route path="/network" element={<NetworkMonitor />} />
+            <Route path="/api" element={<ApiPlayground />} />
+            <Route path="/ws-test" element={<WebSocketTester />} />
+          </Routes>
         </div>
-
-        {/* Content Area with Right Panel */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Main Content */}
-          <div className="flex-1 overflow-auto">
-            <div className="container mx-auto p-4">
-              <Routes>
-                <Route path="/ws-test" element={<WebSocketTester />} />
-                <Route path="/files" element={<FileExplorer />} />
-                <Route path="/logs" element={<LogViewer />} />
-                <Route path="/network" element={<NetworkMonitor />} />
-                <Route path="/" element={<FileExplorer />} />
-              </Routes>
-            </div>
-          </div>
-
-          {/* Right Panel */}
-          <div className={`
-            fixed lg:relative right-0
-            ${rightPanelOpen ? 'translate-x-0' : 'translate-x-full'}
-            lg:translate-x-0
-            w-64 h-full bg-white border-l border-gray-200
-            transition-transform duration-200 ease-in-out
-            z-20
-          `}>
-            <div className="h-16 border-b border-gray-200 flex items-center px-4">
-              <h3 className="text-lg font-medium text-gray-800">Details</h3>
-            </div>
-            <div className="p-4">
-              {/* Right panel content */}
-              <div className="text-sm text-gray-600">
-                Additional information and details can go here
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Overlay for mobile when sidebar is open */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 lg:hidden z-20"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+      </main>
     </div>
   );
-};
-
-export default Dashboard;
+}
