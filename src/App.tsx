@@ -1,18 +1,11 @@
 import React from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter as Router } from 'react-router-dom';
+import { BrowserRouter } from 'react-router-dom';
 import Dashboard from './components/Dashboard';
 
-const queryClient = new QueryClient();
-
-function App() {
+export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-        <Router>
-          <Dashboard />
-        </Router>
-    </QueryClientProvider>
+    <BrowserRouter>
+      <Dashboard />
+    </BrowserRouter>
   );
 }
-
-export default App;
