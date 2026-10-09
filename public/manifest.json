@@ -1,11 +1,8 @@
 {
-  "short_name": "Linux Diagnostic Agent Interface",
-  "name": "Linux Diagnostic Agent Interface",
-  "icons": [
-   
-  ],
+  "short_name": "Diagnostics",
+  "name": "Linux Diagnostics Console",
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#0f172a",
+  "background_color": "#f8fafc"
 }

@@ -1,180 +1,111 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { WifiOff } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createWebSocket } from '../services/api';
 
-const WebSocketTester = () => {
-  const [isConnected, setIsConnected] = useState(false);
+export default function WebSocketTester() {
+  const socket = useRef(null);
+  const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState([]);
-  const wsRef = useRef(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const scrollRef = useRef(null);
+  const [file, setFile] = useState('/var/log/syslog');
+  const [error, setError] = useState('');
 
-  const connect = useCallback(() => {
-    try {
-      wsRef.current = new WebSocket('ws://localhost:8080/ws');
-
-      wsRef.current.onopen = () => {
-        setIsConnected(true);
-        addMessage('system', 'Connected to WebSocket server');
-      };
-
-      wsRef.current.onclose = () => {
-        setIsConnected(false);
-        addMessage('system', 'Disconnected from WebSocket server');
-      };
-
-      wsRef.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        addMessage('error', 'WebSocket error occurred');
-      };
-
-      wsRef.current.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          addMessage('received', data);
-        } catch (e) {
-          addMessage('received', event.data);
-        }
-      };
-    } catch (error) {
-      console.error('Connection error:', error);
-      addMessage('error', `Connection error: ${error.message}`);
-    }
+  const record = useCallback((kind, payload) => {
+    setMessages(previous => [{ kind, payload, at: new Date().toISOString() }, ...previous].slice(0, 100));
   }, []);
 
   const disconnect = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+    if (socket.current) {
+      socket.current.close();
+      socket.current = null;
     }
+    setConnected(false);
   }, []);
 
-  const addMessage = (type, content) => {
-    const timestamp = new Date().toISOString();
-    setMessages(prev => [...prev, { type, content, timestamp }]);
-  };
+  const connect = useCallback(() => {
+    disconnect();
+    setError('');
+    try {
+      const ws = createWebSocket();
+      socket.current = ws;
+      ws.onopen = () => {
+        setConnected(true);
+        record('system', 'Connected');
+      };
+      ws.onmessage = event => {
+        try {
+          record('received', JSON.parse(event.data));
+        } catch {
+          record('received', event.data);
+        }
+      };
+      ws.onclose = () => {
+        if (socket.current === ws) socket.current = null;
+        setConnected(false);
+        record('system', 'Connection closed');
+      };
+      ws.onerror = () => setError('WebSocket connection failed.');
+    } catch (err) {
+      setError(err.message || 'Invalid WebSocket URL.');
+    }
+  }, [disconnect, record]);
 
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
+  useEffect(() => () => {
+    if (socket.current) socket.current.close();
   }, []);
 
-  useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, autoScroll]);
-
-  const renderMessage = (message) => {
-    const { type, content, timestamp } = message;
-    
-    let bgColor = 'bg-gray-100';
-    let textColor = 'text-gray-800';
-    
-    switch (type) {
-      case 'system':
-        bgColor = 'bg-blue-100';
-        textColor = 'text-blue-800';
-        break;
-      case 'error':
-        bgColor = 'bg-red-100';
-        textColor = 'text-red-800';
-        break;
-      case 'received':
-        bgColor = 'bg-green-100';
-        textColor = 'text-green-800';
-        break;
-    }
-
-    return (
-      <div className={`p-3 rounded-lg mb-2 ${bgColor} ${textColor}`}>
-        <div className="flex justify-between items-start">
-          <div className="font-mono text-sm">
-            <pre className="whitespace-pre-wrap">
-              {typeof content === 'object' ? JSON.stringify(content, null, 2) : content}
-            </pre>
-          </div>
-          <div className="text-xs text-gray-500 ml-4">
-            {new Date(timestamp).toLocaleTimeString()}
-          </div>
-        </div>
-      </div>
-    );
+  const subscribe = event => {
+    event.preventDefault();
+    if (!connected || !socket.current || !file.trim()) return;
+    const message = { type: 'view_file', payload: file.trim() };
+    socket.current.send(JSON.stringify(message));
+    record('sent', message);
   };
 
   return (
-    <div className="container mx-auto p-4 max-w-4xl">
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold">WebSocket Tester</h2>
-          <div className={`px-3 py-1 rounded-full text-sm flex items-center gap-2 
-            ${isConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-            {isConnected ? 'Connected' : 'Disconnected'}
-            {!isConnected && <WifiOff className="h-4 w-4" />}
-          </div>
-        </div>
-
-        <div className="space-x-2 mb-4">
-          <button
-            onClick={connect}
-            disabled={isConnected}
-            className={`px-4 py-2 rounded-lg ${
-              isConnected 
-                ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-500 text-white hover:bg-blue-600'
-            }`}
-          >
-            Connect
-          </button>
-          <button
-            onClick={disconnect}
-            disabled={!isConnected}
-            className={`px-4 py-2 rounded-lg ${
-              !isConnected 
-                ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                : 'bg-red-500 text-white hover:bg-red-600'
-            }`}
-          >
-            Disconnect
-          </button>
-          <button
-            onClick={() => setAutoScroll(!autoScroll)}
-            className={`px-4 py-2 rounded-lg ${
-              autoScroll 
-                ? 'bg-gray-200 text-gray-800'
-                : 'bg-gray-100 text-gray-800'
-            }`}
-          >
-            Auto-scroll: {autoScroll ? 'ON' : 'OFF'}
-          </button>
-        </div>
-
-        <div 
-          ref={scrollRef}
-          className="h-[600px] border rounded-lg p-4 overflow-y-auto"
-        >
-          <div className="space-y-2">
-            {messages.map((msg, index) => (
-              <div key={index}>
-                {renderMessage(msg)}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-4 p-4 bg-gray-100 rounded-lg">
-          <h3 className="font-semibold mb-2">Connection Info:</h3>
-          <p className="text-sm text-gray-600">
-            URL: ws://localhost:8080/ws<br />
-            Status: {isConnected ? 'Connected' : 'Disconnected'}<br />
-            Messages Received: {messages.filter(m => m.type === 'received').length}
-          </p>
-        </div>
+    <section className="space-y-5">
+      <div>
+        <h2 className="text-xl font-semibold">WebSocket inspector</h2>
+        <p className="mt-1 text-sm text-slate-500">Inspect real-time frames from the same-origin /ws endpoint</p>
       </div>
-    </div>
+      <div className="rounded-lg border border-slate-200 bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className={'rounded-full px-3 py-1 text-xs font-medium ' +
+            (connected ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600')}>
+            {connected ? 'Connected' : 'Disconnected'}
+          </span>
+          <div className="flex gap-2">
+            <button onClick={connect} disabled={connected}
+              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">Connect</button>
+            <button onClick={disconnect} disabled={!connected}
+              className="rounded-md border border-slate-200 px-4 py-2 text-sm disabled:opacity-40">Disconnect</button>
+          </div>
+        </div>
+        <form onSubmit={subscribe} className="mt-5 flex flex-wrap gap-2">
+          <input aria-label="Subscribed log path" value={file} onChange={e => setFile(e.target.value)}
+            className="min-w-0 flex-1 rounded-md border border-slate-200 px-3 py-2 font-mono text-sm" />
+          <button type="submit" disabled={!connected || !file.trim()}
+            className="rounded-md border border-slate-200 px-3 py-2 text-sm disabled:opacity-40">Subscribe to log</button>
+        </form>
+        {error && <p role="alert" className="mt-4 text-sm text-red-700">{error}</p>}
+      </div>
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="flex justify-between border-b border-slate-100 p-4 text-sm font-semibold">
+          <span>Event log</span><span className="font-normal text-slate-500">{messages.length} recent frames</span>
+        </div>
+        {messages.length === 0 && <p className="p-10 text-center text-sm text-slate-500">Connect to inspect incoming frames.</p>}
+        <ul className="max-h-[600px] divide-y divide-slate-100 overflow-auto">
+          {messages.map((item, index) => (
+            <li key={item.at + index} className="p-4">
+              <div className="mb-2 flex items-center justify-between text-xs">
+                <span className="font-semibold uppercase tracking-wide text-slate-600">{item.kind}</span>
+                <time className="text-slate-400">{new Date(item.at).toLocaleTimeString()}</time>
+              </div>
+              <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs text-slate-700">
+                {typeof item.payload === 'string' ? item.payload : JSON.stringify(item.payload, null, 2)}
+              </pre>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
   );
-};
-
-export default WebSocketTester;
+}

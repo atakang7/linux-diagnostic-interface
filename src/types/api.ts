@@ -29,8 +29,13 @@ export interface NetworkPacket {
   tcp_flags?: string;
 }
 
-export interface ApiError {
-  error: string;
-  code: string;
-  details: Record<string, string>;
+export interface NetworkMetricsResponse {
+  packet_count: number;
+  total_bytes: number;
+  avg_packet_size: number;
+  unique_sources: number;
+  unique_destinations: number;
+  protocol_count: number;
+  protocol_stats: Record<string, number>;
+  packets: NetworkPacket[];
 }

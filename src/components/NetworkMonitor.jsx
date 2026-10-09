@@ -1,212 +1,172 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Activity, AlertCircle, Lock } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Activity } from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { api, createWebSocket } from '../services/api';
 
-const NetworkMonitor = () => {
+const readableBytes = value => {
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  if (value < 1024) return value + ' B';
+  if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KB';
+  return (value / (1024 * 1024)).toFixed(1) + ' MB';
+};
+
+export default function NetworkMonitor() {
   const [packets, setPackets] = useState([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [lastBatchTimestamp, setLastBatchTimestamp] = useState(null);
-  const tableRef = useRef(null);
+  const [statistics, setStatistics] = useState({ packet_count: 0, total_bytes: 0, protocol_stats: {} });
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [protocol, setProtocol] = useState('All');
 
   useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        setIsLoading(true);
-        const response = await fetch('http://localhost:8080/api/network/metrics');
-        if (!response.ok) throw new Error('Network response was not ok');
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          setPackets(data);
-          setLastBatchTimestamp(Date.now());
-        }
-      } catch (error) {
-        console.error('Failed to fetch initial data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchInitialData();
+    let active = true;
+    setLoading(true);
+    api.getNetworkMetrics()
+      .then(data => {
+        if (!active) return;
+        setPackets(Array.isArray(data.packets) ? data.packets : []);
+        setStatistics({
+          packet_count: Number(data.packet_count) || 0,
+          total_bytes: Number(data.total_bytes) || 0,
+          protocol_stats: data.protocol_stats || {}
+        });
+      })
+      .catch(() => { if (active) setError('Unable to fetch network history from the API.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    const connectWebSocket = () => {
-      const ws = new WebSocket('ws://localhost:8080/ws');
-
-      ws.onopen = () => setIsConnected(true);
-      ws.onclose = () => {
-        setIsConnected(false);
-        setTimeout(connectWebSocket, 5000);
-      };
-
-      ws.onmessage = (event) => {
+    let active = true;
+    let socket;
+    let timeout;
+    const connect = () => {
+      if (!active) return;
+      socket = createWebSocket();
+      socket.onopen = () => { if (active) setConnected(true); };
+      socket.onmessage = event => {
         try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'network' && Array.isArray(data.payload)) {
-            setLastBatchTimestamp(Date.now());
-            setPackets(prev => [...data.payload, ...prev].slice(0, 100));
-          }
-        } catch (error) {
-          console.error('WebSocket message processing error:', error);
+          const message = JSON.parse(event.data);
+          if (message.type !== 'network' || !Array.isArray(message.payload)) return;
+          const batch = message.payload;
+          setPackets(previous => [...batch, ...previous].slice(0, 200));
+          setStatistics(previous => {
+            const counts = { ...previous.protocol_stats };
+            for (const p of batch) counts[p.protocol || 'other'] = (counts[p.protocol || 'other'] || 0) + 1;
+            return {
+              packet_count: previous.packet_count + batch.length,
+              total_bytes: previous.total_bytes + batch.reduce((sum, p) => sum + (Number(p.length) || 0), 0),
+              protocol_stats: counts
+            };
+          });
+        } catch {
+          // Ignore malformed telemetry frames.
         }
       };
-
-      return ws;
+      socket.onclose = () => {
+        if (!active) return;
+        setConnected(false);
+        timeout = setTimeout(connect, 3000);
+      };
+      socket.onerror = () => socket.close();
     };
-
-    const ws = connectWebSocket();
-    return () => ws.close();
+    connect();
+    return () => {
+      active = false;
+      if (timeout) clearTimeout(timeout);
+      if (socket) socket.close();
+    };
   }, []);
 
-  const formatBytes = (bytes) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-  };
-
-  const getConnectionStatus = (packet) => {
-    const flags = packet.tcp_flags || '';
-    if (flags.includes('RST:true')) return { status: 'error', message: 'Reset' };
-    if (flags.includes('SYN:true')) return { status: 'info', message: 'New' };
-    if (flags.includes('FIN:true')) return { status: 'warning', message: 'Closing' };
-    return { status: 'success', message: 'Active' };
-  };
-
-  if (isLoading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-gray-500">Loading network data...</div>
-      </div>
-    );
-  }
-
-  const PacketRow = ({ packet, index, isNewBatch }) => {
-    const status = getConnectionStatus(packet);
-    
-    return (
-      <tr 
-        className={`
-          ${status.status === 'error' ? 'bg-red-50' : 
-            status.status === 'warning' ? 'bg-yellow-50' : 
-            'hover:bg-gray-50'}
-          ${isNewBatch ? 'animate-slide-in' : ''}
-        `}
-      >
-        <td className="px-4 py-2 text-sm text-gray-500">
-          {new Date(packet.timestamp).toLocaleTimeString()}
-        </td>
-        <td className="px-4 py-2 text-sm">
-          <div className="flex items-center space-x-2">
-            {(packet.dst_port === 443 || packet.src_port === 443) && 
-              <Lock size={14} className="text-green-500" />
-            }
-            <span>{`${packet.src_ip}:${packet.src_port} → ${packet.dst_ip}:${packet.dst_port}`}</span>
-          </div>
-        </td>
-        <td className="px-4 py-2 text-sm">
-          <span className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-            {packet.protocol}
-          </span>
-        </td>
-        <td className="px-4 py-2 text-sm">
-          <div className="flex flex-col">
-            <span>{formatBytes(packet.length)}</span>
-            {packet.payload_size > 0 && (
-              <span className="text-xs text-gray-500">
-                {formatBytes(packet.payload_size)} payload
-              </span>
-            )}
-          </div>
-        </td>
-        <td className="px-4 py-2 text-sm">
-          <div className="flex flex-wrap gap-1">
-            {packet.tcp_flags?.split(' ').map((flag, i) => {
-              const [name, value] = flag.split(':');
-              if (value === 'true') {
-                return (
-                  <span key={i} className="px-2 py-0.5 rounded-full text-xs bg-gray-100">
-                    {name}
-                  </span>
-                );
-              }
-              return null;
-            })}
-          </div>
-        </td>
-        <td className="px-4 py-2 text-sm">
-          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs
-            ${status.status === 'error' ? 'bg-red-100 text-red-800' :
-              status.status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-              status.status === 'info' ? 'bg-blue-100 text-blue-800' :
-              'bg-green-100 text-green-800'}`}
-          >
-            {status.message}
-          </span>
-        </td>
-      </tr>
-    );
-  };
+  const protocols = useMemo(() => ['All', ...new Set(packets.map(p => p.protocol).filter(Boolean))], [packets]);
+  const visible = useMemo(() => packets.filter(p => protocol === 'All' || p.protocol === protocol), [packets, protocol]);
+  const histogram = Object.entries(statistics.protocol_stats).map(([name, count]) => ({ name, count }));
 
   return (
-    <div className="h-full flex flex-col space-y-4 p-4 bg-gray-50">
-      <div className="bg-white p-4 rounded-lg shadow-sm flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <Activity className={isConnected ? 'text-green-500' : 'text-red-500'} />
-          <span className={`font-medium ${isConnected ? 'text-green-500' : 'text-red-500'}`}>
-            {isConnected ? 'Live Monitoring' : 'Reconnecting...'}
-          </span>
+    <section className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">Network monitor</h2>
+          <p className="mt-1 text-sm text-slate-500">Packet history and incoming network events</p>
         </div>
-        <div className="text-sm text-gray-500">
-          {packets.length > 0 && `${packets.length} packets`}
-        </div>
+        <span className={'rounded-full px-3 py-1 text-xs font-medium ' +
+          (connected ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600')}>
+          {connected ? 'Live stream connected' : 'Live stream offline'}
+        </span>
+      </div>
+      {error && <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[
+          ['Packets observed', statistics.packet_count.toLocaleString()],
+          ['Traffic recorded', readableBytes(statistics.total_bytes)],
+          ['Protocols', String(Object.keys(statistics.protocol_stats).length)]
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-slate-200 bg-white p-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden flex-1">
-        <div className="overflow-auto h-full">
-          <table className="w-full">
-            <thead className="bg-gray-50 sticky top-0 z-10">
+      <div className="rounded-lg border border-slate-200 bg-white p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-sm font-semibold"><Activity size={16} /> Protocol distribution</h3>
+          <span className="text-xs text-slate-400">Current query and stream</span>
+        </div>
+        {histogram.length ? (
+          <div className="h-48" aria-label="Protocol packet count chart">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={histogram} margin={{ top: 5, right: 8, bottom: 5, left: 8 }}>
+                <CartesianGrid vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#334155" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : <p className="py-10 text-center text-sm text-slate-500">No packet data available.</p>}
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+          <h3 className="text-sm font-semibold">Recent packets</h3>
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            Protocol
+            <select value={protocol} onChange={e => setProtocol(e.target.value)}
+              className="rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800">
+              {protocols.map(name => <option key={name}>{name}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Time</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Source → Destination</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Protocol</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Size</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Flags</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Status</th>
+                <th className="px-5 py-3 font-medium">Time</th>
+                <th className="px-5 py-3 font-medium">Source</th>
+                <th className="px-5 py-3 font-medium">Destination</th>
+                <th className="px-5 py-3 font-medium">Protocol</th>
+                <th className="px-5 py-3 font-medium">Length</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
-              {packets.map((packet, index) => (
-                <PacketRow 
-                  key={`${packet.timestamp}-${index}`}
-                  packet={packet}
-                  index={index}
-                  isNewBatch={index < 10 && Date.now() - lastBatchTimestamp < 1000}
-                />
+            <tbody className="divide-y divide-slate-100">
+              {visible.map((packet, index) => (
+                <tr key={packet.timestamp + ':' + index} className="hover:bg-slate-50">
+                  <td className="whitespace-nowrap px-5 py-3 text-xs text-slate-500">{new Date(packet.timestamp).toLocaleTimeString()}</td>
+                  <td className="px-5 py-3 font-mono text-xs">{packet.src_ip}:{packet.src_port}</td>
+                  <td className="px-5 py-3 font-mono text-xs">{packet.dst_ip}:{packet.dst_port}</td>
+                  <td className="px-5 py-3">{packet.protocol}</td>
+                  <td className="px-5 py-3 tabular-nums">{readableBytes(packet.length)}</td>
+                </tr>
               ))}
             </tbody>
           </table>
+          {!visible.length && <p className="py-10 text-center text-sm text-slate-500">
+            {loading ? 'Loading network data…' : 'No matching packets.'}
+          </p>}
         </div>
       </div>
-
-      <style jsx>{`
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .animate-slide-in {
-          animation: slideIn 0.3s ease forwards;
-        }
-      `}</style>
-    </div>
+    </section>
   );
-};
-
-export default NetworkMonitor;
+}

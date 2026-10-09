@@ -1,0 +1,154 @@
+name: Browser end-to-end
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  browser-e2e:
+    runs-on: ubuntu-latest
+    services:
+      database:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGPASSWORD: postgres
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/diagnostic?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check out the real diagnostic backend
+        uses: actions/checkout@v5
+        with:
+          repository: atakang7/linux-diagnostic-client
+          path: backend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Install browser tools and database proxy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client nginx
+          npm ci
+          npm install --no-save --no-package-lock playwright-core@1.58.2
+          if command -v google-chrome >/dev/null; then
+            echo "CHROME_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          elif command -v chromium >/dev/null; then
+            echo "CHROME_PATH=$(command -v chromium)" >> "$GITHUB_ENV"
+          else
+            echo "No system Chromium found, installing Playwright browser"
+            npx playwright install --with-deps chromium
+            echo "CHROME_PATH=$(find "$HOME/.cache/ms-playwright" -name chrome -type f | head -n 1)" >> "$GITHUB_ENV"
+          fi
+      - name: Initialize real TimescaleDB with sample telemetry
+        run: |
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f backend/internal/db/schema.sql
+          psql -h 127.0.0.1 -U postgres -d diagnostic -v ON_ERROR_STOP=1 -f .github/fixtures/browser-seed.sql
+
+      - name: Compile backend and production frontend
+        run: |
+          (cd backend && go build -o "$RUNNER_TEMP/diagnostic-client" ./cmd/api)
+          CI=true npm run build
+
+      - name: Start actual backend
+        run: |
+          SERVER_ADDR=127.0.0.1:8080 AGENT_ADDR=127.0.0.1:8081 \
+            "$RUNNER_TEMP/diagnostic-client" > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8080/readyz; then exit 0; fi
+            sleep 0.5
+          done
+          cat "$RUNNER_TEMP/backend.log"
+          exit 1
+
+      - name: Serve frontend with same-origin REST and WebSocket proxy
+        run: |
+          sudo mkdir -p /var/www/diagnostics
+          sudo cp -r build/. /var/www/diagnostics/
+          cat > "$RUNNER_TEMP/diagnostics.nginx.conf" <<'EOF'
+          worker_processes 1;
+          error_log /tmp/diagnostics-nginx.log;
+          pid /tmp/diagnostics-nginx.pid;
+          events { worker_connections 256; }
+          http {
+            include /etc/nginx/mime.types;
+            server {
+              listen 127.0.0.1:3000;
+              server_name localhost;
+              root /var/www/diagnostics;
+              index index.html;
+
+              location /api/ {
+                proxy_set_header Host $http_host;
+                proxy_pass http://127.0.0.1:8080;
+              }
+              location = /readyz {
+                proxy_set_header Host $http_host;
+                proxy_pass http://127.0.0.1:8080;
+              }
+              location = /ws {
+                proxy_http_version 1.1;
+                proxy_set_header Host $http_host;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_read_timeout 120s;
+                proxy_pass http://127.0.0.1:8080;
+              }
+              location / { try_files $uri /index.html; }
+            }
+          }
+          EOF
+          sudo nginx -t -c "$RUNNER_TEMP/diagnostics.nginx.conf"
+          sudo nginx -c "$RUNNER_TEMP/diagnostics.nginx.conf"
+          curl -fsS http://127.0.0.1:3000/readyz
+
+      - name: Exercise real UI and capture browser screenshots
+        run: node scripts/browser-e2e.cjs
+
+      - name: Verify development-server API and WebSocket proxy
+        run: |
+          HOST=127.0.0.1 PORT=3001 BROWSER=none npm start > "$RUNNER_TEMP/cra.log" 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:3001/ >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          node scripts/dev-proxy-smoke.cjs
+
+      - name: Capture diagnostic logs on failure
+        if: failure()
+        run: |
+          echo '=== Backend logs ==='
+          tail -n 100 "$RUNNER_TEMP/backend.log" || true
+          echo '=== Nginx logs ==='
+          tail -n 100 /tmp/diagnostics-nginx.log || true
+          echo '=== Development server ==='
+          tail -n 100 "$RUNNER_TEMP/cra.log" || true
+
+      - name: Upload screenshot and assertion evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-evidence
+          path: browser-evidence/
+          if-no-files-found: warn
+          retention-days: 14
