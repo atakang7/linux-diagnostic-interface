@@ -108,6 +108,10 @@ async function main() {
       await page.getByRole('button', { name: 'Open navigation' }).click();
       await page.getByRole('link', { name: 'Network' }).click();
       await page.getByRole('heading', { name: 'Network monitor' }).waitFor();
+      await page.waitForFunction(() => {
+        const sidebar = document.querySelector('aside');
+        return sidebar && sidebar.getBoundingClientRect().right <= 1;
+      }, null, { timeout: 3000 });
       const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 4);
       assert.equal(hasOverflow, false, 'page has horizontal overflow at 390px');
     });
