@@ -125,6 +125,15 @@ jobs:
       - name: Exercise real UI and capture browser screenshots
         run: node scripts/browser-e2e.cjs
 
+      - name: Verify development-server API and WebSocket proxy
+        run: |
+          HOST=127.0.0.1 PORT=3001 BROWSER=none npm start > "$RUNNER_TEMP/cra.log" 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:3001/ >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          node scripts/dev-proxy-smoke.cjs
+
       - name: Capture diagnostic logs on failure
         if: failure()
         run: |
@@ -132,6 +141,8 @@ jobs:
           tail -n 100 "$RUNNER_TEMP/backend.log" || true
           echo '=== Nginx logs ==='
           tail -n 100 /tmp/diagnostics-nginx.log || true
+          echo '=== Development server ==='
+          tail -n 100 "$RUNNER_TEMP/cra.log" || true
 
       - name: Upload screenshot and assertion evidence
         if: always()
