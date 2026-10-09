@@ -1,32 +1,51 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { createWebSocket } from '../services/api';
 import { LogEntry } from '../types/api';
 
-export const useLogStream = (file: string) => {
+export function useLogStream(file: string) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8080/ws');
+    if (!file) return;
+    let active = true;
+    let socket: WebSocket | null = null;
+    let reconnect: ReturnType<typeof setTimeout> | undefined;
 
-    ws.onopen = () => {
-      setIsConnected(true);
+    const connect = () => {
+      if (!active) return;
+      socket = createWebSocket();
+      socket.onopen = () => {
+        if (!active) return;
+        setConnected(true);
+        socket?.send(JSON.stringify({ type: 'view_file', payload: file }));
+      };
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type !== 'log' || message.payload?.filename !== file) return;
+          setLogs(previous => [message.payload as LogEntry, ...previous].slice(0, 1000));
+        } catch {
+          // Ignore malformed telemetry without tearing down the stream.
+        }
+      };
+      socket.onclose = () => {
+        if (!active) return;
+        setConnected(false);
+        reconnect = setTimeout(connect, 3000);
+      };
+      socket.onerror = () => socket?.close();
     };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'log' && data.payload.filename === file) {
-        setLogs(prev => [data.payload, ...prev].slice(0, 1000)); // Keep last 1000 logs
-      }
-    };
-
-    ws.onclose = () => {
-      setIsConnected(false);
-    };
+    setLogs([]);
+    setConnected(false);
+    connect();
 
     return () => {
-      ws.close();
+      active = false;
+      if (reconnect) clearTimeout(reconnect);
+      socket?.close();
     };
   }, [file]);
 
-  return { logs, isConnected };
-};
+  return { logs, connected };
+}
