@@ -1,48 +1,38 @@
 # Linux Diagnostic Interface
 
-A React dashboard for [linux-diagnostic-agent](https://github.com/atakang7/linux-diagnostic-agent) — the open-source Linux log and network metric scraper. This is the web UI that visualises the telemetry the agent collects, over a REST + WebSocket API.
+Web console for the [Linux Diagnostic Client](https://github.com/atakang7/linux-diagnostic-client). Reads stored logs and network packets over REST, with live events over WebSocket. The separate [Linux Diagnostic Agent](https://github.com/atakang7/linux-diagnostic-agent) supplies telemetry to the client.
 
-> **Backend required.** This interface talks to the `linux-diagnostic-agent` HTTP/WS server (default `http://localhost:8080`). Run the agent first.
+## Local setup
 
-## Features
-
-- **File Explorer** — browse the remote filesystem exposed by the agent and tail files in place.
-- **Live Log Viewer** — streams log entries over a WebSocket connection, with search across files and time-range filtering. Keeps the last 1000 entries in memory.
-- **Network Monitor** — plots network packet metrics (by protocol, time window) using Recharts.
-- **WebSocket Tester** — send raw frames to the agent's `/ws` endpoint for debugging.
-- **API Playground** — point-and-click interface for the agent's REST endpoints (`/api/files`, `/api/logs`, `/api/logs/search`, `/api/network/metrics`).
-
-## Tech
-
-- React 18 + TypeScript
-- Mantine 7 (components) + Tailwind CSS (layout)
-- TanStack Query (server state), Axios (REST), native WebSocket (streaming)
-- Recharts (charts), React Router (navigation)
-
-## Getting started
+The diagnostic client must be running on `127.0.0.1:8080`. The agent is optional for browsing historical data, but is needed to produce new telemetry.
 
 ```bash
-# 1. Start the backend agent first (see linux-diagnostic-agent repo)
-# 2. Install and run this UI
-npm install
-npm start          # dev server on http://localhost:3000
+npm ci
+npm start                 # http://localhost:3000
 ```
 
-By default the UI expects the agent at `http://localhost:8080` and `ws://localhost:8080/ws`. Override the base URL in `src/services/api.ts` if your agent runs elsewhere.
+CRA proxies `/api`, `/readyz`, and `/ws` to the diagnostic client during development, so browser requests and WebSocket handshakes are same-origin.
 
-## Configuration
+## Screens
 
-| Setting | Location | Default |
-|---|---|---|
-| Agent REST base URL | `src/services/api.ts` | `http://localhost:8080` |
-| Agent WebSocket URL | `src/services/api.ts`, `src/hooks/useLogStream.ts` | `ws://localhost:8080/ws` |
+- **File explorer:** browse discovered paths from `GET /api/files`; open a file in Logs.
+- **Logs:** historical records, full-text search through `POST /api/logs/search`, and live `view_file` WebSocket subscriptions.
+- **Network:** `GET /api/network/metrics` statistics and streamed packets.
+- **API explorer:** run the implemented HTTP operations without inventing new endpoints.
+- **WebSocket inspector:** connect, subscribe to a log file, and examine frames.
 
-## Screenshots
+## Verification
 
-![Dashboard](https://github.com/user-attachments/assets/38af3251-cdd4-44ed-80e6-3ee991c3bc77)
-![Network Monitor](https://github.com/user-attachments/assets/bb48b999-392c-47c6-9d09-e0c852cb583f)
-![Log Viewer](https://github.com/user-attachments/assets/eefa4e58-17f2-4a00-5b9d-d3784afe9e85)
+```bash
+npm run typecheck
+CI=true npm run build
+CI=true npm test -- --runInBand --passWithNoTests
+```
 
-## License
+GitHub Actions also runs browser interaction tests with mocked API responses and captures screenshots; check the workflow artifacts. These prove UI behavior and its request contracts, not privileged Linux packet capture.
 
-MIT
+## Deployment boundary
+
+For production static hosting, route `/api/*`, `/readyz`, and WebSocket `/ws` through the **same origin** to the diagnostic client, preserving WebSocket upgrade headers. The client has no built-in HTTP authentication or TLS; keep the stack on a protected private network or add a trusted authentication/TLS layer before exposing it. Browser code must not embed server credentials.
+
+The UI displays backend errors instead of silently claiming a service is connected.
