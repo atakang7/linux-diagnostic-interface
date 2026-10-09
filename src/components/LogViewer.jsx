@@ -33,7 +33,7 @@ export default function LogViewer() {
       })
       .catch(() => { if (active) setError('Unable to load the log inventory.'); });
     return () => { active = false; };
-  }, []); // The file inventory is loaded once on mount.
+  }, [selected, setParams]);
 
   useEffect(() => {
     if (!selected) {
