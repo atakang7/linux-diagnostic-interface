@@ -59,6 +59,7 @@ async function main() {
       await page.getByText('INFO storage connection restored').waitFor();
     });
     await page.screenshot({ path: 'browser-evidence/logs-desktop.png', fullPage: true });
+    console.log('VISUAL_LOGS_JPEG:' + (await page.screenshot({ type: 'jpeg', quality: 56 })).toString('base64'));
 
     await trace('network packet statistics and filters', async () => {
       await page.getByRole('link', { name: 'Network' }).click();
@@ -111,6 +112,7 @@ async function main() {
       assert.equal(hasOverflow, false, 'page has horizontal overflow at 390px');
     });
     await page.screenshot({ path: 'browser-evidence/mobile-network.png', fullPage: true });
+    console.log('VISUAL_MOBILE_JPEG:' + (await page.screenshot({ type: 'jpeg', quality: 56 })).toString('base64'));
     console.log('BROWSER_TEST_RESULT:' + JSON.stringify(results));
     fs.writeFileSync('browser-evidence/results.json', JSON.stringify({ results, errors }, null, 2));
     assert.deepEqual(errors, [], 'unexpected browser errors: ' + errors.join('\n'));
