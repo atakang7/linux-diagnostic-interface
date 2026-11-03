@@ -6,7 +6,7 @@ module.exports = function setupProxy(app) {
   app.use(
     ['/api', '/readyz', '/ws'],
     createProxyMiddleware({
-      target: 'http://127.0.0.1:8080',
+      target: process.env.DIAGNOSTIC_BACKEND_URL || 'http://127.0.0.1:8080',
       changeOrigin: false,
       ws: true,
       logLevel: 'warn'
