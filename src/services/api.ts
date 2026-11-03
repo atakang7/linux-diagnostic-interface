@@ -3,20 +3,27 @@ import { FileUpdate, LogEntry, NetworkMetricsResponse } from '../types/api';
 
 // The UI and API share an origin. CRA proxies /api and /ws in development;
 // production hosts must proxy both paths to diagnostic-client.
-const client = axios.create({ baseURL: process.env.REACT_APP_API_BASE_URL || '' });
+const configuredTimeout = Number(process.env.REACT_APP_API_TIMEOUT_MS);
+const client = axios.create({
+  baseURL: process.env.REACT_APP_API_BASE_URL || '',
+  timeout: Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 10000
+});
 
 export const api = {
   async getFileTree(path = '/', depth = 1): Promise<FileUpdate[]> {
     const { data } = await client.get<FileUpdate[]>('/api/files', { params: { path, depth } });
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) throw new Error('Invalid /api/files response');
+    return data;
   },
   async getLogs(file: string, before?: string): Promise<LogEntry[]> {
     const { data } = await client.get<LogEntry[]>('/api/logs', { params: { file, before } });
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) throw new Error('Invalid /api/logs response');
+    return data;
   },
   async searchLogs(query: string, files: string[] = []): Promise<LogEntry[]> {
     const { data } = await client.post<LogEntry[]>('/api/logs/search', { query, files });
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) throw new Error('Invalid /api/logs/search response');
+    return data;
   },
   async getNetworkMetrics(): Promise<NetworkMetricsResponse> {
     const { data } = await client.get<NetworkMetricsResponse>('/api/network/metrics');
