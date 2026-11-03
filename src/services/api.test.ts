@@ -62,3 +62,18 @@ test('WebSocket uses the current origin and preserves ws protocol', () => {
     Object.defineProperty(global, 'WebSocket', { value: original, configurable: true });
   }
 });
+
+test('HTTP requests use a timeout', () => {
+  expect(axios.create).toHaveBeenCalledWith(expect.objectContaining({
+    timeout: 10000
+  }));
+});
+
+test('invalid collection responses do not appear as empty results', async () => {
+  transport.get.mockResolvedValue({ data: { error: 'unexpected' } });
+  await expect(api.getFileTree()).rejects.toThrow('Unexpected /api/files response');
+  await expect(api.getLogs('/var/log/app.log')).rejects.toThrow('Unexpected /api/logs response');
+
+  transport.post.mockResolvedValue({ data: null });
+  await expect(api.searchLogs('failure')).rejects.toThrow('Unexpected /api/logs/search response');
+});
