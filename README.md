@@ -1,56 +1,38 @@
 # Linux Diagnostic Interface
 
-React console for [Linux Diagnostic Client](https://github.com/atakang7/linux-diagnostic-client) logs and packets over HTTP and WebSocket.
+Web console for the [Linux Diagnostic Client](https://github.com/atakang7/linux-diagnostic-client). Reads stored logs and network packets over REST, with live events over WebSocket. The separate [Linux Diagnostic Agent](https://github.com/atakang7/linux-diagnostic-agent) supplies telemetry to the client.
 
-```text
-+-----------+  calls  +--------+  HTTP/WS  +-------------------+  SQL   +-------------+
-| Dashboard | ------> | api.ts | --------> | diagnostic-client | -----> | TimescaleDB |
-+-----------+         +--------+           +-------------------+        +-------------+
-```
+## Local setup
 
-## Run
+The diagnostic client must be running on `127.0.0.1:8080`. The agent is optional for browsing historical data, but is needed to produce new telemetry.
 
-Start the diagnostic client at `127.0.0.1:8080`, then run:
-
-```sh
-nvm use
+```bash
 npm ci
-npm start
+npm start                 # http://localhost:3000
 ```
 
-Open `http://localhost:3000`. For static hosting, run `CI=true npm run build`, serve `build/`, and proxy `/api`, `/readyz`, and WebSocket `/ws` to the client.
+CRA proxies `/api`, `/readyz`, and `/ws` to the diagnostic client during development, so browser requests and WebSocket handshakes are same-origin.
 
-## Config
+## Screens
 
-Copy `.env.example` to `.env` to change defaults.
+- **File explorer:** browse discovered paths from `GET /api/files`; open a file in Logs.
+- **Logs:** historical records, full-text search through `POST /api/logs/search`, and live `view_file` WebSocket subscriptions.
+- **Network:** `GET /api/network/metrics` statistics and streamed packets.
+- **API explorer:** run the implemented HTTP operations without inventing new endpoints.
+- **WebSocket inspector:** connect, subscribe to a log file, and examine frames.
 
-| var | default | what |
-| --- | --- | --- |
-| `DIAGNOSTIC_BACKEND_URL` | `http://127.0.0.1:8080` | Local development proxy target |
-| `REACT_APP_API_BASE_URL` | Empty (same origin) | Browser HTTP and WebSocket origin |
-| `REACT_APP_API_TIMEOUT_MS` | `10000` | HTTP timeout, milliseconds |
+## Verification
 
-## CI
-
-`.github/workflows/web.yml` runs typecheck, tests, and build; `browser.yml` tests the UI with TimescaleDB and the diagnostic client.
-
-```text
-+-------------+  runs   +----------------+  HTTP/WS  +-------+  proxy  +-------------------+
-| browser.yml | ------> | browser-e2e.cjs| --------> | nginx | ------> | diagnostic-client |
-+-------------+         +----------------+           +-------+         +-------------------+
-```
-
-Verify locally:
-
-```sh
+```bash
 npm run typecheck
-CI=true npm test -- --runInBand
 CI=true npm run build
+CI=true npm test -- --runInBand --passWithNoTests
 ```
 
-## Limits
+GitHub Actions also runs browser interaction tests with mocked API responses and captures screenshots; check the workflow artifacts. These prove UI behavior and its request contracts, not privileged Linux packet capture.
 
-- The diagnostic client has no HTTP authentication or TLS; use a protected network or an authenticated TLS proxy.
-- The browser retains at most 1,000 live log entries and 200 network packets.
-- The [Linux Diagnostic Agent](https://github.com/atakang7/linux-diagnostic-agent) is required for new telemetry.
-- `REACT_APP_*` values are public in the browser build; do not store credentials in them.
+## Deployment boundary
+
+For production static hosting, route `/api/*`, `/readyz`, and WebSocket `/ws` through the **same origin** to the diagnostic client, preserving WebSocket upgrade headers. The client has no built-in HTTP authentication or TLS; keep the stack on a protected private network or add a trusted authentication/TLS layer before exposing it. Browser code must not embed server credentials.
+
+The UI displays backend errors instead of silently claiming a service is connected.
