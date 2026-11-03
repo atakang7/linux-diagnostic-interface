@@ -16,6 +16,7 @@ async function trace(name, fn) {
 function sendAgentMessage(message) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(8081, '127.0.0.1');
+    socket.setTimeout(5000, () => socket.destroy(new Error('agent connection timed out')));
     socket.on('connect', () => socket.end(JSON.stringify(message) + '\n'));
     socket.on('close', resolve);
     socket.on('error', reject);
@@ -38,8 +39,7 @@ async function main() {
       await page.goto(origin, { waitUntil: 'networkidle' });
       await page.getByText('Backend connected').waitFor({ timeout: 15000 });
       await page.getByRole('heading', { name: 'File explorer' }).waitFor();
-      await page.getByRole('button', { name: /var.*Folder/ }).first().waitFor({ timeout: 10000 }).catch(() => {});
-      assert.equal(await page.getByText('var', { exact: true }).count() > 0, true);
+      await page.getByText('var', { exact: true }).waitFor({ timeout: 10000 });
     });
 
     await trace('file explorer directories and log navigation', async () => {
@@ -59,7 +59,6 @@ async function main() {
       await page.getByText('INFO storage connection restored').waitFor();
     });
     await page.screenshot({ path: 'browser-evidence/logs-desktop.png', fullPage: true });
-    console.log('VISUAL_LOGS_JPEG:' + (await page.screenshot({ type: 'jpeg', quality: 56 })).toString('base64'));
 
     await trace('network packet statistics and filters', async () => {
       await page.getByRole('link', { name: 'Network' }).click();
@@ -71,8 +70,6 @@ async function main() {
       assert.equal(await page.getByText('10.10.10.3:51515').count(), 0);
     });
     await page.screenshot({ path: 'browser-evidence/network-desktop.png', fullPage: true });
-    const sample = await page.screenshot({ type: 'jpeg', quality: 58 });
-    console.log('VISUAL_EVIDENCE_JPEG:' + sample.toString('base64'));
 
     await trace('API explorer executes real endpoint', async () => {
       await page.getByRole('link', { name: 'API explorer' }).click();
@@ -116,8 +113,6 @@ async function main() {
       assert.equal(hasOverflow, false, 'page has horizontal overflow at 390px');
     });
     await page.screenshot({ path: 'browser-evidence/mobile-network.png', fullPage: true });
-    console.log('VISUAL_MOBILE_JPEG:' + (await page.screenshot({ type: 'jpeg', quality: 56 })).toString('base64'));
-    console.log('BROWSER_TEST_RESULT:' + JSON.stringify(results));
     fs.writeFileSync('browser-evidence/results.json', JSON.stringify({ results, errors }, null, 2));
     assert.deepEqual(errors, [], 'unexpected browser errors: ' + errors.join('\n'));
   } finally {
