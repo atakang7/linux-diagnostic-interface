@@ -27,10 +27,12 @@ export default function WebSocketTester() {
       const ws = createWebSocket();
       socket.current = ws;
       ws.onopen = () => {
+        if (socket.current !== ws) return;
         setConnected(true);
         record('system', 'Connected');
       };
       ws.onmessage = event => {
+        if (socket.current !== ws) return;
         try {
           record('received', JSON.parse(event.data));
         } catch {
@@ -38,11 +40,14 @@ export default function WebSocketTester() {
         }
       };
       ws.onclose = () => {
-        if (socket.current === ws) socket.current = null;
+        if (socket.current !== ws) return;
+        socket.current = null;
         setConnected(false);
         record('system', 'Connection closed');
       };
-      ws.onerror = () => setError('WebSocket connection failed.');
+      ws.onerror = () => {
+        if (socket.current === ws) setError('WebSocket connection failed.');
+      };
     } catch (err) {
       setError(err.message || 'Invalid WebSocket URL.');
     }

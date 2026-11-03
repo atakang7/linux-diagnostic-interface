@@ -1,38 +1,54 @@
 # Linux Diagnostic Interface
 
-Web console for the [Linux Diagnostic Client](https://github.com/atakang7/linux-diagnostic-client). Reads stored logs and network packets over REST, with live events over WebSocket. The separate [Linux Diagnostic Agent](https://github.com/atakang7/linux-diagnostic-agent) supplies telemetry to the client.
+Browser console for the [Linux Diagnostic Client](https://github.com/atakang7/linux-diagnostic-client). It displays stored logs and network packets over HTTP, then receives new events over WebSocket. The [Linux Diagnostic Agent](https://github.com/atakang7/linux-diagnostic-agent) feeds the client.
 
-## Local setup
+## Quick start
 
-The diagnostic client must be running on `127.0.0.1:8080`. The agent is optional for browsing historical data, but is needed to produce new telemetry.
+Use Node.js 22.16.0 and start the diagnostic client on `127.0.0.1:8080`. The agent is only needed to collect new telemetry.
 
-```bash
+```sh
+nvm use
 npm ci
-npm start                 # http://localhost:3000
+npm start
 ```
 
-CRA proxies `/api`, `/readyz`, and `/ws` to the diagnostic client during development, so browser requests and WebSocket handshakes are same-origin.
+Open `http://localhost:3000`. The development server proxies `/api`, `/readyz` and `/ws` to the client.
 
-## Screens
+## Configuration
 
-- **File explorer:** browse discovered paths from `GET /api/files`; open a file in Logs.
-- **Logs:** historical records, full-text search through `POST /api/logs/search`, and live `view_file` WebSocket subscriptions.
-- **Network:** `GET /api/network/metrics` statistics and streamed packets.
-- **API explorer:** run the implemented HTTP operations without inventing new endpoints.
-- **WebSocket inspector:** connect, subscribe to a log file, and examine frames.
+The defaults work for a local client. For another address or timeout, copy `.env.example` to `.env` before starting the development server.
 
-## Verification
+| Variable | Default | Use |
+| --- | --- | --- |
+| `DIAGNOSTIC_BACKEND_URL` | `http://127.0.0.1:8080` | Development proxy target |
+| `REACT_APP_API_BASE_URL` | Empty (same origin) | HTTP and WebSocket origin |
+| `REACT_APP_API_TIMEOUT_MS` | `10000` | HTTP request timeout in milliseconds |
 
-```bash
-npm run typecheck
+`REACT_APP_*` values are included in the browser build. Do not put credentials in them. Keep `REACT_APP_API_BASE_URL` empty when using the same-origin proxy.
+
+## Use
+
+File explorer lists paths from `GET /api/files` and opens a selected file in Logs. Logs uses `GET /api/logs`, `POST /api/logs/search` and a `view_file` WebSocket subscription. Network shows `GET /api/network/metrics` and live packet events. API explorer sends the supported requests; WebSocket inspector displays received frames.
+
+## Build and deploy
+
+```sh
+npm ci
 CI=true npm run build
-CI=true npm test -- --runInBand --passWithNoTests
 ```
 
-GitHub Actions also runs browser interaction tests with mocked API responses and captures screenshots; check the workflow artifacts. These prove UI behavior and its request contracts, not privileged Linux packet capture.
+Serve `build/` as static files. Route `/api/*` and `/readyz` to the diagnostic client, and proxy `/ws` with HTTP/1.1 WebSocket upgrade headers. Keep all three paths on the browser's origin.
 
-## Deployment boundary
+## Verify
 
-For production static hosting, route `/api/*`, `/readyz`, and WebSocket `/ws` through the **same origin** to the diagnostic client, preserving WebSocket upgrade headers. The client has no built-in HTTP authentication or TLS; keep the stack on a protected private network or add a trusted authentication/TLS layer before exposing it. Browser code must not embed server credentials.
+```sh
+npm run typecheck
+CI=true npm test -- --runInBand
+CI=true npm run build
+```
 
-The UI displays backend errors instead of silently claiming a service is connected.
+GitHub Actions runs these checks and a browser test against the diagnostic client with TimescaleDB. Screenshots and test results are attached to the browser workflow run.
+
+## Limitations
+
+The diagnostic client does not provide HTTP authentication or TLS. Use a private network or put an authenticated TLS proxy in front of the stack before allowing remote access. The UI cannot capture Linux telemetry by itself. Live log history is capped at 1,000 messages in the browser; incoming network packets are capped at 200.
