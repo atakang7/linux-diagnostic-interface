@@ -23,8 +23,8 @@ test('late events from a replaced socket do not change connection state', () => 
   expect(screen.getByText('Disconnected')).toBeTruthy();
 
   act(() => second.onopen());
-  expect(screen.getByText('Connected')).toBeTruthy();
+  expect(screen.getByText('Connected', { selector: 'span' })).toBeTruthy();
 
   act(() => first.onclose());
-  expect(screen.getByText('Connected')).toBeTruthy();
+  expect(screen.getByText('Connected', { selector: 'span' })).toBeTruthy();
 });

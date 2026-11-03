@@ -3,7 +3,7 @@ import { api, createWebSocket } from './api';
 
 jest.mock('axios', () => ({
   __esModule: true,
-  default: { create: jest.fn(() => ({ get: jest.fn(), post: jest.fn() })) }
+  default: { create: jest.fn(config => ({ get: jest.fn(), post: jest.fn(), defaults: config })) }
 }));
 
 const transport = (axios.create as jest.Mock).mock.results[0].value;
@@ -64,9 +64,7 @@ test('WebSocket uses the current origin and preserves ws protocol', () => {
 });
 
 test('HTTP requests use a timeout', () => {
-  expect(axios.create).toHaveBeenCalledWith(expect.objectContaining({
-    timeout: 10000
-  }));
+  expect(transport.defaults.timeout).toBe(10000);
 });
 
 test('invalid collection responses do not appear as empty results', async () => {
