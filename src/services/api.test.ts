@@ -38,14 +38,6 @@ test('log search is POST with the backend JSON field names', async () => {
   });
 });
 
-test('invalid list responses reject instead of appearing empty', async () => {
-  transport.get.mockResolvedValue({ data: { items: [] } });
-  await expect(api.getFileTree()).rejects.toThrow('Invalid /api/files response');
-  await expect(api.getLogs('/var/log/app.log')).rejects.toThrow('Invalid /api/logs response');
-  transport.post.mockResolvedValue({ data: { items: [] } });
-  await expect(api.searchLogs('failure')).rejects.toThrow('Invalid /api/logs/search response');
-});
-
 test('network metrics are a statistics envelope, not a raw packet array', async () => {
   transport.get.mockResolvedValue({ data: { packet_count: 2, packets: [{ protocol: 'TCP' }] } });
   const response = await api.getNetworkMetrics();

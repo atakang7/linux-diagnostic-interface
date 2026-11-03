@@ -27,12 +27,10 @@ export default function WebSocketTester() {
       const ws = createWebSocket();
       socket.current = ws;
       ws.onopen = () => {
-        if (socket.current !== ws) return;
         setConnected(true);
         record('system', 'Connected');
       };
       ws.onmessage = event => {
-        if (socket.current !== ws) return;
         try {
           record('received', JSON.parse(event.data));
         } catch {
@@ -40,14 +38,11 @@ export default function WebSocketTester() {
         }
       };
       ws.onclose = () => {
-        if (socket.current !== ws) return;
-        socket.current = null;
+        if (socket.current === ws) socket.current = null;
         setConnected(false);
         record('system', 'Connection closed');
       };
-      ws.onerror = () => {
-        if (socket.current === ws) setError('WebSocket connection failed.');
-      };
+      ws.onerror = () => setError('WebSocket connection failed.');
     } catch (err) {
       setError(err.message || 'Invalid WebSocket URL.');
     }
@@ -93,7 +88,7 @@ export default function WebSocketTester() {
         {error && <p role="alert" className="mt-4 text-sm text-red-700">{error}</p>}
       </div>
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <div className="flex justify-between border-b p-4 text-sm font-semibold">
+        <div className="flex justify-between border-b border-slate-100 p-4 text-sm font-semibold">
           <span>Event log</span><span className="font-normal text-slate-500">{messages.length} recent frames</span>
         </div>
         {messages.length === 0 && <p className="p-10 text-center text-sm text-slate-500">Connect to inspect incoming frames.</p>}
